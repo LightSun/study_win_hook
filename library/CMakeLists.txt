@@ -25,9 +25,17 @@ add_library(intercept SHARED
 target_link_libraries(intercept PUBLIC ${WIN_deps})
 target_link_libraries(intercept_s PUBLIC ${WIN_deps})
 
+## handler os
+set(HANDLER_OS_DIR D:/study/cpp/ENV/handler_os)
+include_directories(${HANDLER_OS_DIR}/include)
+set(HANDLER_LIB ${HANDLER_OS_DIR}/lib/libhandler_os.a pthread)
+
 ## test
 
 add_executable(test_intercept
+    test/WinHooker.h test/WinHooker.cpp
+    test/WorkManager.h test/WorkManager.cpp
+    test/work_config.h
     test/utils.h
     test/utils.c
     test/x2y.cpp
@@ -36,4 +44,7 @@ add_executable(test_intercept
     test/test_listen_keyboard.cpp
     )
 
-target_link_libraries(test_intercept PUBLIC intercept_s ${WIN_deps})
+target_link_libraries(test_intercept PUBLIC intercept_s
+    ${WIN_deps}
+    ${HANDLER_LIB}
+    )

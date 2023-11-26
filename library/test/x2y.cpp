@@ -15,11 +15,12 @@ enum ScanCode
 static void test_mock_mouse();
 static void test_keyboard();
 extern int main_tets2();
+extern int main_test3();
 
 int main()
 {
     setbuf(stdout, NULL);
-    return main_tets2();
+    return main_test3();
     //test_keyboard();
     //return 0;
     InterceptionContext context;

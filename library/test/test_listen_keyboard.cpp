@@ -96,8 +96,8 @@ int main_test3()
        // unordered_set<int> s1 = {1,2,3};
        // unordered_set<int> s2 = {3,2,1};
        // cout << "unordered_set >>  " << (s1 == s2) << endl;
-       // test_WinHooker();
-        test_WorkManager();
+        test_WinHooker();
+        // test_WorkManager();
         return 0;
     }
     SetConsoleOutputCP(65001);// 更改cmd编码为utf8
@@ -154,34 +154,36 @@ void test_WorkManager(){
     item.vkCodes = {VK_LCONTROL, VK_LMENU};
 
     Events& es = item.entry;
-    {
-        Event e;
-        e.keyboard = true;
-        e.vkCode = 0x46; //F
-        e.down = true;
-        es.push_back(e);
-    }
-    {
-        Event e;
-        e.keyboard = true;
-        e.vkCode = 0x46; //F
-        e.down = false;
-        es.push_back(e);
-    }
+//    {
+//        Event e;
+//        e.keyboard = true;
+//        e.vkCode = 0x46; //F
+//        e.down = true;
+//        es.push_back(e);
+//    }
+//    {
+//        Event e;
+//        e.keyboard = true;
+//        e.vkCode = 0x46; //F
+//        e.down = false;
+//        es.push_back(e);
+//    }
     {
         Event e;
         e.keyboard = false;
-        e.dx = 100;
-        e.dy = 100;
+        e.dx = 300;
+        e.dy = 300;
         e.absolute = false;
         es.push_back(e);
     }
     {
         Event e;
         e.keyboard = false;
-        e.dx = 100;
-        e.dy = 100;
-        e.absolute = true;
+        e.dx = 300;
+        e.dy = 300;
+        e.absolute = false;
+        e.mouseClickType = kMouse_LEFT;
+        e.mouseUpDelayMs = 10;
         es.push_back(e);
     }
     WorkManager wm(item);
@@ -209,5 +211,6 @@ void test_WinHooker(){
     ptr->down = true;
     wh.regKeysEvent(ptr);
     }
-    wh.startHookKeyboard();
+   // wh.startHookKeyboard();
+    wh.startHookMouse();
 }

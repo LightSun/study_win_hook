@@ -7,7 +7,6 @@ namespace hw32 {
 
 typedef struct _WorkManager_ctx _WorkManager_ctx;
 
-
 struct EventCollector{
     virtual void onKeyEvent(int itemId, u32 vkCode, bool down) = 0;
     virtual void onMouseEvent(int itemId, int dx, int dy, bool absolute) = 0;
@@ -21,6 +20,9 @@ public:
     WorkManager(CWorkItems cs);
     WorkManager(const WorkItem& cs);
     ~WorkManager();
+
+    void listenMouse(bool async = true);
+    void getLastMousePos(MousePos& out);
 
     void start(CString name, bool utf8 = true);
     void startAsync(CString name, bool utf8 = true);

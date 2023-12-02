@@ -38,6 +38,32 @@ enum {
     kMsg_MOUSE_EVENT,
 };
 
+struct _EventItem{
+    int id;
+    Event ev;
+    _EventItem(const Event& c){
+        ev = c;
+    }
+};
+
+static void _FUNC_delete_ev(CString tag, void* ptr){
+    _EventItem* ei = (_EventItem*)ptr;
+    delete ei;
+}
+static inline int _cvt_mouseType(int type, bool down){
+    switch (type) {
+    case kMouse_NONE:
+        return MOUSEEVENTF_MOVE;
+    case kMouse_LEFT:
+        return down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+    case kMouse_RIGHT:
+        return down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+    case kMouse_MIDDLE:
+        return down ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
+    }
+    return 0;
+}
+
 static void _keyCallback0(KeysEvent* ke, bool act);
 
 namespace hw32{
@@ -61,20 +87,30 @@ struct _WorkManager_ctx{
             switch (m->what) {
             case kMsg_ATTACH_INPUT:{
                 hooker.attachInput();
+                MousePos mp;
             }break;
 
             case kMsg_KEY_EVENT:{
-                bool down = (m->arg1 & 0xffff) != 0;
-                int itemId = (m->arg1 & 0xffff0000) >> 16;
-                sendKeyEvent(itemId, (u32)m->arg2, down);
+//                bool down = (m->arg1 & 0xffff) != 0;
+//                int itemId = (m->arg1 & 0xffff0000) >> 16;
+//                sendKeyEvent(itemId, (u32)m->arg2, down);
+                _EventItem* ei = (_EventItem*)m->obj.ptr;
+                sendKeyEvent(ei->id, ei->ev);
             }break;
 
             case kMsg_MOUSE_EVENT:{
-                bool absolute = (m->arg1 & 0xffff) != 0;
-                int itemId = (m->arg1 & 0xffff0000) >> 16;
-                int dy = m->arg2 & 0xffffffff;
-                int dx = (m->arg2 & 0xffffffff00000000) >> 32;
-                sendMouseEvent(itemId, dx, dy, absolute);
+//                bool absolute = (m->arg1 & 0xffff) != 0;
+//                int itemId = (m->arg1 & 0xffff0000) >> 16;
+//                int dy = m->arg2 & 0xffffffff;
+//                int dx = (m->arg2 & 0xffffffff00000000) >> 32;
+//                sendMouseEvent(itemId, dx, dy, absolute);
+                _EventItem* ei = (_EventItem*)m->obj.ptr;
+                sendMouseEvent(ei->id, ei->ev);
+                if(ei->ev.down && ei->ev.mouseUpDelayMs > 0){
+                    ei->ev.down = false;
+                    size_t delay = ei->ev.mouseUpDelayMs;
+                    sendMouseEventMsg(ei->id, ei->ev, delay);
+                }
             }break;
 
             default:
@@ -92,6 +128,7 @@ struct _WorkManager_ctx{
     }
     ~_WorkManager_ctx(){
         attachHos->quit();
+        workHos->quit();
     }
     auto getWorkHandler(){
         return workHos->getHandler();
@@ -121,7 +158,9 @@ struct _WorkManager_ctx{
             hooker.regKeysEvent(ptr);
         }
         //start listen
-        hooker.startHookKeyboard();
+        if(!hooker.startHookKeyboard()){
+            _LOGE("startHookKeyboard failed!");
+        }
     }
     void act(WorkItem* wi){
         auto& en = wi->entry;
@@ -130,13 +169,37 @@ struct _WorkManager_ctx{
         for(int i = 0 ; i < size ; ++i){
             auto& it = en[i];
             if(it.keyboard){
-                sendKeyEventMsg(wi->id, it.vkCode, it.down);
+                sendKeyEventMsg(wi->id, it);
+                //sendKeyEventMsg(wi->id, it.vkCode, it.down);
             }else{
-                sendMouseEventMsg(wi->id,rect.left + it.dx, rect.top + it.dy, it.absolute);
+                sendMouseEventMsg(wi->id, it);
+                //sendMouseEventMsg(wi->id,rect.left + it.dx, rect.top + it.dy, it.absolute);
             }
         }
     }
-
+    void listenMouse(){
+        if(!hooker.startHookMouse()){
+            _LOGE("startHookMouse failed!");
+        }
+    }
+    void sendKeyEventMsg(int itemId, const Event& ev){
+        auto h = getAttachHandler();
+        auto msg = Message::obtain(h.get(), kMsg_KEY_EVENT);
+        msg->obj.func_free = _FUNC_delete_ev;
+        msg->obj.ptr = new _EventItem(ev);
+        h->sendMessage(msg);
+    }
+    void sendMouseEventMsg(int itemId, const Event& ev, size_t delayMs = 0){
+        auto h = getAttachHandler();
+        auto msg = Message::obtain(h.get(), kMsg_MOUSE_EVENT);
+        msg->obj.func_free = _FUNC_delete_ev;
+        msg->obj.ptr = new _EventItem(ev);
+        if(delayMs > 0){
+            h->sendMessageDelayed(msg, delayMs);
+        }else{
+            h->sendMessage(msg);
+        }
+    }
     void sendKeyEventMsg(int itemId, u32 vkCode, bool down){
         int arg1 = ((unsigned int)itemId << 16) + (down ? 1 : 0);
         //
@@ -151,6 +214,60 @@ struct _WorkManager_ctx{
         auto msg = Message::obtain(h.get(), kMsg_MOUSE_EVENT, arg1, dxy);
         h->sendMessage(msg);
     }
+    bool sendKeyEvent(int itemId, const Event& ev){
+        if(eventCollector){
+            eventCollector->onKeyEvent(itemId, ev.vkCode, ev.down);
+            return true;
+        }
+        using namespace std;
+        INPUT inputs[1] = {};
+        ZeroMemory(inputs, sizeof(inputs));
+        inputs[0].type = INPUT_KEYBOARD;
+        inputs[0].ki.wVk = ev.vkCode;
+
+        if (!ev.down){
+            inputs[0].ki.dwFlags = KEYEVENTF_KEYUP;
+        }
+        UINT uSent = SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
+        if (uSent != ARRAYSIZE(inputs))
+        {
+            _LOGE("sendKeyEvent >> SendInput failed: 0x%x, itemId = %d",
+                  HRESULT_FROM_WIN32(GetLastError()), itemId);
+            return false;
+        }
+        else
+        {
+            return true;
+        }
+    }
+    bool sendMouseEvent(int itemId, const Event& ev) {
+        if(eventCollector){
+            eventCollector->onMouseEvent(itemId, ev.dx, ev.dy, ev.absolute);
+            return true;
+        }
+        using namespace std;
+        INPUT inputs[1] = {};
+        ZeroMemory(inputs, sizeof(inputs));
+        inputs[0].type = INPUT_MOUSE;
+        inputs[0].mi.dx = ev.dx;
+        inputs[0].mi.dy = ev.dy;
+        inputs[0].mi.mouseData = 0;
+        //
+        inputs[0].mi.dwFlags = _cvt_mouseType(ev.mouseClickType, ev.down);
+        if (ev.absolute){
+            inputs[0].mi.dwFlags |= MOUSEEVENTF_ABSOLUTE;
+        }
+        //GetMouseMovePointsEx()
+        UINT uSent = SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
+        if (uSent != ARRAYSIZE(inputs))
+        {
+            _LOGE("sendMouseEvent >> SendInput failed: 0x%x, itemId = %d",
+                  HRESULT_FROM_WIN32(GetLastError()), itemId);
+            return false;
+        }
+        return false;
+    }
+
     //vkCode: https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
     bool sendKeyEvent(int itemId,u32 vkCode, bool down){
         if(eventCollector){
@@ -233,7 +350,19 @@ WorkManager::~WorkManager()
         m_ptr = nullptr;
     }
 }
-
+void WorkManager::listenMouse(bool async){
+    if(async){
+        std::thread thd([this](){
+            m_ptr->listenMouse();
+        });
+        thd.detach();
+    }else{
+        m_ptr->listenMouse();
+    }
+}
+void WorkManager::getLastMousePos(MousePos& out){
+    m_ptr->hooker.getLastMousePos(out);
+}
 void WorkManager::start(CString name, bool utf8){
     m_ptr->start(name, utf8);
 }

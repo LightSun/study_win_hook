@@ -5,11 +5,15 @@
 #include <memory>
 #include <mutex>
 #include <unordered_set>
+#include "work_config.h"
 
 namespace hw32 {
 using u32 = unsigned long;
 using String = std::string;
 using CString = const std::string&;
+
+struct KeysEvent;
+using SpKeysEvent = std::shared_ptr<KeysEvent>;
 
 struct Rect {
   int left;
@@ -29,9 +33,12 @@ struct WindowInfo{
 struct SysInfo{
     int width;
     int height;
+    int nVirtualWidth;
+    int nVirtualHeight;
+    int nVirtualLeft;
+    int nVirtualTop;
 };
 
-struct KeysEvent;
 //act: true if should act. false other wise.
 typedef void (*Func_KeysEvent)(KeysEvent* ke, bool act);
 struct KeysEvent{
@@ -48,13 +55,13 @@ struct KeysEvent{
 
     int getCodesHash();
 };
-using SpKeysEvent = std::shared_ptr<KeysEvent>;
 typedef struct _WinHooker_ctx  _WinHooker_ctx;
 
 class WinHooker
 {
 public:
     using LL = long long;
+    using CMousePos = const MousePos&;
     WinHooker();
     ~WinHooker();
 
@@ -62,8 +69,14 @@ public:
     void getWindowInfo(CString gbk, WindowInfo* out = nullptr);
     void attachInput(void* handle = nullptr);
     bool startHookKeyboard();
+    bool startHookMouse();
+
     bool hasKeysEvent(SpKeysEvent se);
     void regKeysEvent(SpKeysEvent se);
+    //get mouse pos from 'startHookMouse'
+    void getLastMousePos(MousePos& out);
+    bool queryMousePosition(CMousePos in,MousePos& out);
+    int queryMousePosition(CMousePos in, std::vector<MousePos>& out);
 
 public:
     WindowInfo winInfo;
@@ -71,6 +84,7 @@ public:
 private:
     friend struct FocusKeys;
     void* m_keyboard {nullptr};
+    void* m_mouse {nullptr};
     _WinHooker_ctx* m_ptr;
 };
 

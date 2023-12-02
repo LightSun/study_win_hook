@@ -9,6 +9,9 @@
 #include "handler-os/HandlerOS.h"
 #include "handler-os/Message.h"
 
+#include "LockH.h"
+#include "_time.h"
+
 using namespace hw32;
 using HOS = h7_handler_os::HandlerOS;
 
@@ -35,6 +38,7 @@ static inline String _codes2Str(std::unordered_set<unsigned long>& vec){
 static BOOL CALLBACK lpEnumFunc(HWND hwnd, LPARAM lParam);
 static String Utf8ToGbk(const char *src_str);
 static LRESULT CALLBACK LowLevelKeyboardProc(_In_ int nCode,_In_ WPARAM wParam,_In_ LPARAM lParam);
+static LRESULT CALLBACK LowLevelMouseProc(_In_ int nCode,_In_ WPARAM wParam,_In_ LPARAM lParam);
 static String _StrReverse(const char* str);
 
 struct Holder{
@@ -175,6 +179,9 @@ struct FocusKeys{
     HOS hos;
     WinHooker* wh {nullptr};
 
+    h7::CppLock lock_mouse;
+    MousePos lastMousePos;
+
     FocusKeys(){
         hos.start([this](Message* m){
             //
@@ -206,6 +213,18 @@ struct FocusKeys{
         }
         wh->m_ptr->onKeyUp(&hos, vkCode);
     }
+    void onMouseEvent(int x, int y, long long time){
+        lock_mouse.lock();
+        lastMousePos.x = x;
+        lastMousePos.y = y;
+        lastMousePos.time = time;
+        lock_mouse.unlock();
+    }
+    void getLastMousePos(MousePos& out){
+        lock_mouse.lock();
+        out = lastMousePos;
+        lock_mouse.unlock();
+    }
 };
 }
 
@@ -216,6 +235,10 @@ WinHooker::WinHooker()
 {
     sysInfo.width = GetSystemMetrics(SM_CXSCREEN);
     sysInfo.height = GetSystemMetrics(SM_CYSCREEN);
+    sysInfo.nVirtualWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN) ;
+    sysInfo.nVirtualHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN) ;
+    sysInfo.nVirtualLeft = GetSystemMetrics(SM_XVIRTUALSCREEN) ;
+    sysInfo.nVirtualTop = GetSystemMetrics(SM_YVIRTUALSCREEN) ;
     _FK.wh = this;
     m_ptr = new _WinHooker_ctx();
 }
@@ -293,11 +316,88 @@ bool WinHooker::startHookKeyboard(){
     UnhookWindowsHookEx((HHOOK)m_keyboard);
     return true;
 }
+bool WinHooker::startHookMouse(){
+    m_mouse = SetWindowsHookEx(
+        WH_MOUSE_LL,
+        LowLevelMouseProc,
+        GetModuleHandleA(NULL),
+        NULL
+        );
+    if (m_mouse == nullptr){
+        return false;
+    }
+
+    MSG msg;
+    while(1)
+    {
+        if (PeekMessageA(
+            &msg,
+            NULL,
+            NULL,
+            NULL,
+            PM_REMOVE
+            )){
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+        }
+        else
+            Sleep(0);
+    }
+    UnhookWindowsHookEx((HHOOK)m_mouse);
+    return true;
+}
+
 void WinHooker::regKeysEvent(SpKeysEvent se){
     m_ptr->regKeysEvent(se);
 }
 bool WinHooker::hasKeysEvent(SpKeysEvent se){
     return m_ptr->hashKeysEvent(se);
+}
+void WinHooker::getMousePos(MousePos& out){
+    return _FK.getLastMousePos(out);
+}
+bool WinHooker::queryMousePosition(CMousePos in, MousePos& out){
+    std::vector<MousePos> vec;
+    if(queryMousePosition(in, vec) > 0){
+        out = vec[0];
+        return true;
+    }
+    return false;
+}
+int WinHooker::queryMousePosition(CMousePos in, std::vector<MousePos>& out){
+    if(out.size() == 0){
+        out.resize(1);
+    }
+    int cpt = 0 ;
+    int mode = GMMP_USE_DISPLAY_POINTS ;
+
+    MOUSEMOVEPOINT mp_in ;
+    MOUSEMOVEPOINT mp_out[64] ;
+
+    ZeroMemory(&mp_in, sizeof(mp_in)) ;
+    mp_in.x = in.x & 0x0000FFFF ;//Ensure that this number will pass through.
+    mp_in.y = in.y & 0x0000FFFF ;
+    cpt = GetMouseMovePointsEx(sizeof(MOUSEMOVEPOINT),&mp_in, (MOUSEMOVEPOINT*)&mp_out, out.size(), mode) ;
+
+    for (int i = 0; i < cpt; i++)
+    {
+       switch(mode)
+       {
+       case GMMP_USE_DISPLAY_POINTS:
+          if (mp_out[i].x > 32767){
+             out[i].x = mp_out[i].x - 65536 ;
+          }
+          if (mp_out[i].y > 32767){
+              out[i].y = mp_out[i].y - 65536 ;
+          }
+          break ;
+       case GMMP_USE_HIGH_RESOLUTION_POINTS:
+          out[i].x = ((mp_out[i].x * (sysInfo.nVirtualWidth - 1)) - (sysInfo.nVirtualLeft * 65536)) / sysInfo.nVirtualWidth ;
+          out[i].y = ((mp_out[i].y * (sysInfo.nVirtualHeight - 1)) - (sysInfo.nVirtualTop * 65536)) / sysInfo.nVirtualHeight ;
+          break ;
+       }
+    }
+    return cpt;
 }
 //------------------------------
 LRESULT CALLBACK LowLevelKeyboardProc(
@@ -341,6 +441,22 @@ LRESULT CALLBACK LowLevelKeyboardProc(
     // call to next
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
+
+LRESULT CALLBACK LowLevelMouseProc(_In_ int nCode,
+                                   _In_ WPARAM wParam,_In_ LPARAM lParam){
+    if(nCode < 0){
+         return CallNextHookEx(NULL, nCode, wParam, lParam);
+    }
+    if(nCode == HC_ACTION){
+        //wParam: 512 = WM_MOUSEMOVE
+        MOUSEHOOKSTRUCT* mh = (MOUSEHOOKSTRUCT*)lParam;
+        //_LOGE("lParam.xy = %d, %d", mh->pt.x, mh->pt.y);
+        //_FK.setMousePos(mh->pt.x, mh->pt.y, h7_handler_os::getCurTime());
+        _FK.onMouseEvent(mh->pt.x, mh->pt.y, 0);
+    }
+    return CallNextHookEx(NULL, nCode, wParam, lParam);
+}
+
 BOOL CALLBACK lpEnumFunc(HWND hwnd, LPARAM lParam)
 {
     Holder* h = (Holder*)lParam;

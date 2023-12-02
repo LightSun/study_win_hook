@@ -36,6 +36,9 @@ add_executable(test_intercept
     test/WinHooker.h test/WinHooker.cpp
     test/WorkManager.h test/WorkManager.cpp
     test/work_config.h
+    test/LockH.h
+    test/_time.h
+
     test/utils.h
     test/utils.c
     test/x2y.cpp

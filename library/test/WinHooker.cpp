@@ -353,7 +353,7 @@ void WinHooker::regKeysEvent(SpKeysEvent se){
 bool WinHooker::hasKeysEvent(SpKeysEvent se){
     return m_ptr->hashKeysEvent(se);
 }
-void WinHooker::getMousePos(MousePos& out){
+void WinHooker::getLastMousePos(MousePos& out){
     return _FK.getLastMousePos(out);
 }
 bool WinHooker::queryMousePosition(CMousePos in, MousePos& out){
